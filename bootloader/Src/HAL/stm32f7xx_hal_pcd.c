@@ -1334,6 +1334,33 @@ void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd)
   }
 }
 
+/**
+  * @brief  Set the USB Device high speed test mode.
+  * @param  hpcd PCD handle
+  * @param  testmode USB Device high speed test mode
+  * @retval HAL status
+  */
+HAL_StatusTypeDef HAL_PCD_SetTestMode(PCD_HandleTypeDef *hpcd, uint8_t testmode)
+{
+  const USB_OTG_GlobalTypeDef *USBx = hpcd->Instance;
+  uint32_t USBx_BASE = (uint32_t)USBx;
+
+  switch (testmode)
+  {
+    case TEST_J:
+    case TEST_K:
+    case TEST_SE0_NAK:
+    case TEST_PACKET:
+    case TEST_FORCE_EN:
+      USBx_DEVICE->DCTL |= (uint32_t)testmode << 4;
+      break;
+
+    default:
+      break;
+  }
+
+  return HAL_OK;
+}
 
 /**
   * @brief  Handles PCD Wakeup interrupt request.

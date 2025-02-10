@@ -312,6 +312,8 @@ HAL_StatusTypeDef HAL_PCD_RegisterLpmCallback(PCD_HandleTypeDef *hpcd,
                                               pPCD_LpmCallbackTypeDef pCallback);
 
 HAL_StatusTypeDef HAL_PCD_UnRegisterLpmCallback(PCD_HandleTypeDef *hpcd);
+
+HAL_StatusTypeDef HAL_PCD_SetTestMode(const PCD_HandleTypeDef *hpcd, uint8_t testmode);
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
 /**
   * @}

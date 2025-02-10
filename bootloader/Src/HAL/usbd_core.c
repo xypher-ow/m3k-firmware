@@ -245,10 +245,13 @@ USBD_StatusTypeDef USBD_Stop(USBD_HandleTypeDef *pdev)
 */
 USBD_StatusTypeDef USBD_RunTestMode(USBD_HandleTypeDef  *pdev)
 {
-  /* Prevent unused argument compilation warning */
-  UNUSED(pdev);
+  USBD_StatusTypeDef ret;
 
-  return USBD_OK;
+  /* Run USB HS test mode */
+  ret = USBD_LL_SetTestMode(pdev, pdev->dev_test_mode);
+
+  return ret;
+
 }
 
 /**
@@ -461,7 +464,13 @@ USBD_StatusTypeDef USBD_LL_DataInStage(USBD_HandleTypeDef *pdev,
 #endif
     }
 
-    if (pdev->dev_test_mode == 1U)
+/*    if (pdev->dev_test_mode == 1U)
+    {
+      (void)USBD_RunTestMode(pdev);
+      pdev->dev_test_mode = 0U;
+  }*/
+
+    if (pdev->dev_test_mode != 0U)
     {
       (void)USBD_RunTestMode(pdev);
       pdev->dev_test_mode = 0U;
