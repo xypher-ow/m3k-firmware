@@ -1,26 +1,3 @@
-/* MIT License
- *
- * Copyright (c) 2023 Zaunkoenig GmbH
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
-
 #include "usb.h"
 //#include "usbd_def.h"
 //#include "usbd_core.h"
@@ -74,7 +51,7 @@ void usb_init(int hs_usb)
 	// USBD_LL_Init(pdev)
 	hpcd.Instance = USB_OTG_HS;
 	hpcd.Init.dev_endpoints = 9;
-	hpcd.Init.speed = hs_usb ? PCD_SPEED_HIGH : PCD_SPEED_HIGH_IN_FULL;
+	hpcd.Init.speed = PCD_SPEED_HIGH; // force 8khz
 	hpcd.Init.vbus_sensing_enable = 0;
 	hpcd.Init.phy_itface = USB_OTG_HS_EMBEDDED_PHY; // assumes
 	hpcd.Init.use_dedicated_ep1 = 0; // code assumes 0
@@ -90,7 +67,7 @@ void usb_init(int hs_usb)
 	SET_BIT(RCC->APB2ENR, RCC_APB2ENR_OTGPHYCEN);
 	SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_OTGHSEN);
 	SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_OTGHSULPIEN);
-//	NVIC_SetPriority(OTG_HS_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 5, 0));
+	//	NVIC_SetPriority(OTG_HS_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 5, 0));
 	NVIC_EnableIRQ(OTG_HS_IRQn);
 	// HAL_PCD_Init
 	hpcd.State = HAL_PCD_STATE_BUSY;

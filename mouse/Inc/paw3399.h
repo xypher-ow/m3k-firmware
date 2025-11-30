@@ -1,35 +1,76 @@
-/* MIT License
- *
- * Copyright (c) 2023 Zaunkoenig GmbH
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
-
 #pragma once
 
 #include <delay.h>
 #include <m3k_resource.h>
 #include <stdint.h>
 #include "stm32f7xx.h"
-#include "config.h"
 
-static void spi_init(void)
+// Define Registers for Bank 0x00
+// Registers marked with ? are not present in data sheet
+#define REG_PRODUCT_ID			0x00
+#define REG_REVISION_ID			0x01
+#define REG_MOTION				0x02
+#define REG_DELTA_X_L			0x03
+#define REG_DELTA_X_H			0x04
+#define REG_DELTA_Y_L			0x05
+#define REG_DELTA_Y_H			0x06
+#define REG_SQUAL				0x07
+#define REG_RAWDATA_SUM			0x08
+#define REG_MAXIMUM_RAWDATA		0x09
+#define REG_MINIMUM_RAWDATA		0x0A
+#define REG_SHUTTER_LOWER		0x0B
+#define REG_SHUTTER_UPPER		0x0C
+
+#define REG_OBSERVATION			0x15
+#define REG_MOTION_BURST		0x16
+
+#define REG_SROM_ENABLE         0x22 // ?
+#define REG_SROM_CONFIG         0x23 // ?
+
+#define REG_POWER_UP_RESET		0x3A
+#define REG_SHUTDOWN			0x3B
+
+#define REG_PERFORMANCE			0x40
+
+#define REG_SET_RESOLUTION		0x47
+#define REG_RESOLUTION_X_LOW	0x48
+#define REG_RESOLUTION_X_HIGH	0x49
+#define REG_RESOLUTION_Y_LOW	0x4A
+#define REG_RESOLUTION_Y_HIGH	0x4B
+
+#define REG_INIT_RES_X_HIGH		0x4E // ?
+#define REG_INIT_RES_X_LOW		0x4F // ?
+
+#define REG_INIT_RES_Y_HIGH		0x51 // ?
+#define REG_INIT_RES_Y_LOW		0x52 // ?
+
+#define REG_MODE_CONTROL        0x55 // ?
+#define REG_ANGLE_SNAP			0x56
+
+#define REG_RAWDATA_OUTPUT		0x58
+#define REG_RAWDATA_STATUS		0x59
+#define REG_RIPPLE_CONTROL		0x5A
+#define REG_AXIS_CONTROL		0x5B
+#define REG_MOTION_CTRL			0x5C
+
+#define REG_INV_PRODUCT_ID		0x5F
+
+
+
+#define REG_SROM_STATUS			0x6C
+
+#define REG_RUN_DOWNSHIFT		0x77
+#define REG_REST1_RATE			0x78
+#define REG_REST1_DOWNSHIFT		0x79
+#define REG_REST2_RATE			0x7A
+#define REG_REST2_DOWNSHIFT		0x7B
+#define REG_REST3_RATE			0x7C
+#define REG_RUN_DOWNSHIFT_MULT	0x7D
+#define REG_REST_DOWNSHIFT_MULT	0x7E
+#define REG_BANK_SELECT			0x7F
+
+
+static void spi_init()
 {
 	// GPIO config
 	SPIx_SCK_GPIO_CLK_ENABLE();
@@ -69,7 +110,7 @@ static void spi_init(void)
 	// SPI config
 	SPIx_CLK_ENABLE();
 	SPIx->CR1 = SPI_CR1_SSM | SPI_CR1_SSI // software SS
-			| (0b001 << SPI_CR1_BR_Pos) // assumes PCLK2 = 32MHz. divide by 4 for 8MHz
+			| (0b000 << SPI_CR1_BR_Pos) // assumes PCLK2 = 32MHz. divide by 4 for 8MHz
 			| SPI_CR1_MSTR // master
 			| SPI_CR1_CPOL // CPOL = 1
 			| SPI_CR1_CPHA; // CPHA = 1
@@ -80,12 +121,12 @@ static void spi_init(void)
 
 static inline void ss_low(void)
 {
-	SPIx_SS_PORT->ODR &= ~SPIx_SS_PIN;
+	SPIx_SS_PORT->BSRR = (uint32_t)SPIx_SS_PIN << 16;
 }
 
 static inline void ss_high(void)
 {
-	SPIx_SS_PORT->ODR |= SPIx_SS_PIN;
+	SPIx_SS_PORT->BSRR = SPIx_SS_PIN;
 }
 
 static inline uint8_t spi_sendrecv(uint8_t b)
@@ -113,23 +154,29 @@ static uint8_t spi_read(const uint8_t addr) {
 	return rd;
 }
 
-// equivalent of 6.2.1-99
-static void paw3399_spi1(void)
+// -------------------------------------------------------------------------------------------------
+// Power-Up Initialization (6.2.1 - 6.2.107)
+// -------------------------------------------------------------------------------------------------
+static void PowerUpInit(void)
 {
 	ss_low();
-	spi_write(0x40, 0x80);
-	spi_write(0x7F, 0x0E);
+
+	spi_write(REG_PERFORMANCE, 0x80); // Disable Rest Mode
+
+	spi_write(REG_BANK_SELECT, 0x0E); // Select Bank 0x0E
 	spi_write(0x55, 0x0D);
 	spi_write(0x56, 0x1B);
 	spi_write(0x57, 0xE8);
 	spi_write(0x58, 0xD5);
-	spi_write(0x7F, 0x14);
+
+	spi_write(REG_BANK_SELECT, 0x14); // Select Bank 0x14
 	spi_write(0x42, 0xBC);
 	spi_write(0x43, 0x74);
 	spi_write(0x4B, 0x20);
 	spi_write(0x4D, 0x00);
 	spi_write(0x53, 0x0D);
-	spi_write(0x7F, 0x05);
+
+	spi_write(REG_BANK_SELECT, 0x05); // Select Bank 0x05
 	spi_write(0x51, 0x40);
 	spi_write(0x53, 0x40);
 	spi_write(0x55, 0xCA);
@@ -140,16 +187,19 @@ static void paw3399_spi1(void)
 	spi_write(0x70, 0x02);
 	spi_write(0x4A, 0x2A);
 	spi_write(0x60, 0x26);
-	spi_write(0x7F, 0x06);
+
+	spi_write(REG_BANK_SELECT, 0x06); // Select Bank 0x06
 	spi_write(0x6D, 0x70);
 	spi_write(0x6E, 0x60);
 	spi_write(0x6F, 0x04);
 	spi_write(0x53, 0x02);
 	spi_write(0x55, 0x11);
 	spi_write(0x7D, 0x51);
-	spi_write(0x7F, 0x08);
+
+	spi_write(REG_BANK_SELECT, 0x08); // Select Bank 0x08
 	spi_write(0x71, 0x4F);
-	spi_write(0x7F, 0x09);
+
+	spi_write(REG_BANK_SELECT, 0x09); // Select Bank 0x09
 	spi_write(0x62, 0x1F);
 	spi_write(0x63, 0x1F);
 	spi_write(0x65, 0x03);
@@ -164,13 +214,16 @@ static void paw3399_spi1(void)
 	spi_write(0x53, 0x20);
 	spi_write(0x54, 0x20);
 	spi_write(0x71, 0x0F);
-	spi_write(0x7F, 0x0A);
+
+	spi_write(REG_BANK_SELECT, 0x0A); // Select Bank 0x0A
 	spi_write(0x4A, 0x14);
 	spi_write(0x4C, 0x14);
 	spi_write(0x55, 0x19);
-	spi_write(0x7F, 0x14);
+
+	spi_write(REG_BANK_SELECT, 0x14); // Select Bank 0x14
 	spi_write(0x63, 0x16);
-	spi_write(0x7F, 0x0C);
+
+	spi_write(REG_BANK_SELECT, 0x0C); // Select Bank 0x0C
 	spi_write(0x41, 0x30);
 	spi_write(0x55, 0x14);
 	spi_write(0x49, 0x0A);
@@ -180,7 +233,8 @@ static void paw3399_spi1(void)
 	spi_write(0x5F, 0x1E);
 	spi_write(0x5B, 0x05);
 	spi_write(0x5E, 0x0F);
-	spi_write(0x7F, 0x0D);
+
+	spi_write(REG_BANK_SELECT, 0x0D); // Select Bank 0x0D
 	spi_write(0x48, 0xDC);
 	spi_write(0x5A, 0x29);
 	spi_write(0x5B, 0x47);
@@ -194,29 +248,63 @@ static void paw3399_spi1(void)
 	spi_write(0x74, 0x07);
 	spi_write(0x77, 0x00);
 	spi_write(0x76, 0x08);
-	spi_write(0x7F, 0x10);
+
+	spi_write(REG_BANK_SELECT, 0x10); // Select Bank 0x10
 	spi_write(0x4C, 0xD0);
-	spi_write(0x7F, 0x00);
-	spi_write(0x4F, 0x63);
-	spi_write(0x4E, 0x00);
-	spi_write(0x52, 0x63);
-	spi_write(0x51, 0x00);
-	spi_write(0x77, 0x4F);
-	spi_write(0x47, 0x01);
-	spi_write(0x5B, 0x40);
+
+	spi_write(REG_BANK_SELECT, 0x00); // Select Bank 0x00
+	spi_write(REG_INIT_RES_X_LOW, 0x63); // Set lower Initialization X-Resolution
+	spi_write(REG_INIT_RES_X_HIGH, 0x00); // Set higher Initialization X-Resolution
+	spi_write(REG_INIT_RES_Y_LOW, 0x63); // Set lower Initialization Y-Resolution
+	spi_write(REG_INIT_RES_Y_HIGH, 0x00); // Set higher Initialization Y-Resolution
+	spi_write(REG_RUN_DOWNSHIFT, 0x4F); // Enter Rest1 Mode after ~1s (79*256*50µs)
+	spi_write(REG_SET_RESOLUTION, 0x01); // Update Resolution
+	spi_write(REG_AXIS_CONTROL, 0x40);	// Invert Y-Axis
 	spi_write(0x66, 0x13);
 	spi_write(0x67, 0x0F);
-	spi_write(0x78, 0x01);
-	spi_write(0x79, 0x9C);
-	spi_write(0x55, 0x02);
-	spi_write(0x23, 0x70);
+	spi_write(REG_REST1_RATE, 0x01); // Set Rest1 Mode polling rate to 1000Hz (1ms/1)
+	spi_write(REG_REST1_DOWNSHIFT, 0x9C); // Enter Rest2 Mode after ~10s (156*64*1ms)
+	spi_write(REG_MODE_CONTROL, 0x02); // Enter SROM Mode
+	spi_write(REG_SROM_CONFIG, 0x70); // Set SROM ID
+	spi_write(REG_SROM_ENABLE, 0x01); // Enable SROM Access
+
+	ss_high();
+	int i;
+	for (i = 0; i < 60; i++) {
+		ss_high();
+		delay_us(992);
+		ss_low();
+		if (spi_read(REG_SROM_STATUS) == 0x80) break;
+	}
+	ss_low();
+	if (i == 60) {
+		spi_write(REG_BANK_SELECT, 0x14);
+		spi_write(0x6C, 0x00);
+		spi_write(REG_BANK_SELECT, 0x00);
+	}
+
+	spi_write(REG_SROM_ENABLE, 0x00); // Disable SROM Access (?)
+	spi_write(REG_MODE_CONTROL, 0x00); // Return to Normal Run Mode (?)
+
+	spi_write(REG_BANK_SELECT, 0x00); // Select Bank 0x00
+	spi_write(REG_PERFORMANCE, 0x00); // Enables Rest Mode
+
+	(void)spi_read(REG_MOTION); // Read Motion Register
+	(void)spi_read(REG_DELTA_X_L); // Read lower X-Movement
+	(void)spi_read(REG_DELTA_X_H); // Read higher X-Movement
+	(void)spi_read(REG_DELTA_Y_L); // Read lower Y-Movement
+	(void)spi_read(REG_DELTA_Y_H); // Read higher Y-Movement
+
 	ss_high();
 }
 
-static void paw3399_spi2(void)
-{
+// -------------------------------------------------------------------------------------------------
+// Disable Lift Cut Off Calibration (7.5.3.1 - 7.5.3.20)
+// -------------------------------------------------------------------------------------------------
+static void DisableLiftOff() {
 	ss_low();
-	spi_write(0x7F, 0x0C);
+
+	spi_write(REG_BANK_SELECT, 0x0C); // Select Bank 0x0C
 	spi_write(0x41, 0x30);
 	spi_write(0x43, 0x20);
 	spi_write(0x44, 0x0D);
@@ -230,63 +318,103 @@ static void paw3399_spi2(void)
 	spi_write(0x5B, 0x05);
 	spi_write(0x5F, 0x1E);
 	spi_write(0x66, 0x30);
-	spi_write(0x7F, 0x05);
+
+	spi_write(REG_BANK_SELECT, 0x05); // Select Bank 0x05
 	spi_write(0x6E, 0x0F);
-	spi_write(0x7F, 0x09);
+
+	spi_write(REG_BANK_SELECT, 0x09); // Select Bank 0x09
 	spi_write(0x71, 0x0F);
 	spi_write(0x72, 0x0A);
-	spi_write(0x7F, 0x00);
-	spi_write(0x7F, 0x0C);
-	spi_write(0x4E, 0x09);
-	spi_write(0x7F, 0x00);
-	spi_write(0x40, 0x80);
-	spi_write(0x7F, 0x05);
-	spi_write(0x4D, 0x01);
-	spi_write(0x7F, 0x06);
-	spi_write(0x54, 0x01);
-	spi_write(0x7F, 0x00);
-	spi_write(0x7F, 0x05);
-	spi_write(0x44, 0x44);
-	spi_write(0x7F, 0x00);
-	spi_write(0x7F, 0x0D);
-	spi_write(0x48, 0xDD);
-	spi_write(0x7F, 0x00);
+
+	spi_write(REG_BANK_SELECT, 0x00); // Select Bank 0x00
+
 	ss_high();
 }
 
-static void paw3399_set_dpi(const uint16_t dpi)
-{
+// -------------------------------------------------------------------------------------------------
+// Enable Corded Gaming Mode (7.3)
+// -------------------------------------------------------------------------------------------------
+static void EnableCordedGaming() {
 	ss_low();
-	spi_write(0x48, dpi & 0xff); // RESOLUTION_X_LOW
-	spi_write(0x49, dpi >> 8); // RESOLUTION_X_HIGH
-	spi_write(0x4A, dpi & 0xff); // RESOLUTION_Y_LOW
-	spi_write(0x4B, dpi >> 8); //RESOLUTION_Y_HIGH
-	spi_write(0x47, 0x01); // SET_RESOLUTION
+
+	spi_write(REG_BANK_SELECT, 0x05); // Select Bank 0x05
+	spi_write(0x51, 0x40);
+	spi_write(0x53, 0x40);
+	spi_write(0x61, 0x31);
+	spi_write(0x6E, 0x0F);
+
+	spi_write(REG_BANK_SELECT, 0x07); // Select Bank 0x07
+	spi_write(0x42, 0x2F);
+	spi_write(0x43, 0x00);
+
+	spi_write(REG_BANK_SELECT, 0x0D); // Select Bank 0x0D
+	spi_write(0x51, 0x12);
+	spi_write(0x52, 0xDB);
+	spi_write(0x53, 0x12);
+	spi_write(0x54, 0xDC);
+	spi_write(0x55, 0x12);
+	spi_write(0x56, 0xE4);
+	spi_write(0x57, 0x15);
+	spi_write(0x58, 0x2D);
+
+	spi_write(REG_BANK_SELECT, 0x14); // Select Bank 0x14
+	spi_write(0x63, 0x1E);
+
+	spi_write(REG_BANK_SELECT, 0x00); // Select Bank 0x00
+	spi_write(0x54, 0x55);
+	spi_write(REG_PERFORMANCE, 0x83); // Disable Rest Mode and set Corded Gaming Mode (?)
+
 	ss_high();
 }
 
-static void paw3399_set_as(const uint8_t angle_snap)
-{
+// -------------------------------------------------------------------------------------------------
+// Additional Setup
+// -------------------------------------------------------------------------------------------------
+static void AdditionalSetup() {
 	ss_low();
-	spi_write(0x56, (angle_snap << 7) | 0x0D);
+
+	spi_write(REG_AXIS_CONTROL, 0x20); //invert x-axis to compensate for chip orientation
+
 	ss_high();
 }
 
-static void paw3399_set_lod(const uint8_t lod)
-{
+// -------------------------------------------------------------------------------------------------
+// Custom Config
+// -------------------------------------------------------------------------------------------------
+static void CustomConfig() {
 	ss_low();
-	spi_write(0x7F, 0x0C);
-	spi_write(0x4E, 0x08 | lod);
-	spi_write(0x7F, 0x00);
+
+	spi_write(REG_BANK_SELECT, 0x0C); // Select Bank 0x0C
+	spi_write(0x4E, 0x00); // Set Lift Off Distance to 1mm
+
+	spi_write(REG_BANK_SELECT, 0x00); // Select Bank 0x00
+	spi_write(0x48, 0x7F); //
+	spi_write(0x49, 0x00); //
+	spi_write(0x4A, 0x7F); //
+	spi_write(0x4B, 0x00); //
+	spi_write(0x47, 0x01); // Set Resolution
+	spi_write(REG_ANGLE_SNAP, 0x00); // Disable Angle Snap
+
 	ss_high();
 }
 
-static void paw3399_init(const Config cfg)
-{
-	const uint16_t dpi = _FLD2VAL(CONFIG_DPI, cfg);
-	const uint8_t ang_snap = (cfg & CONFIG_ANGLE_SNAP_ON) ? 1 : 0;
-	const uint8_t lod = _FLD2VAL(CONFIG_LOD, cfg);
+// -------------------------------------------------------------------------------------------------
+// Tweaks
+// -------------------------------------------------------------------------------------------------
+static void Tweaks() {
+	ss_low();
 
+	spi_write(REG_RIPPLE_CONTROL, 0x00); // Disable Ripple Control
+
+	spi_write(0x7f, 0x0D);
+	spi_write(0x58, 0x00); // is lower on corded then on standard, so set to 0
+	spi_write(0x7f, 0x00);
+
+	ss_high();
+}
+
+static void paw3399_init()
+{
 	NRESET_GPIO_CLK_ENABLE();
 	__NOP();__NOP();__NOP();__NOP(); // probably unnecessary
 	MODIFY_REG(NRESET_PORT->MODER,
@@ -305,70 +433,10 @@ static void paw3399_init(const Config cfg)
 	ss_high();
 	delay_ms(10); // 6.1.5
 
-	// 6.1.6
-	paw3399_spi1();
-	// 6.2.100-107
-	ss_low();
-	spi_write(0x22, 0x01);
-	ss_high();
-	int i;
-	for (i = 0; i < 60; i++) {
-		ss_high();
-		delay_us(992); // ideally, tune this and/or use dedicated timer or systick
-		ss_low();
-		if (spi_read(0x6C) == 0x80) break;
-	}
-	ss_low();
-	if (i == 60) {
-		spi_write(0x7C, 0x14);
-		spi_write(0x6C, 0x00);
-		spi_write(0x7F, 0x00);
-	}
-	spi_write(0x22, 0x00);
-	spi_write(0x55, 0x00);
-	spi_write(0x7F, 0x00);
-	spi_write(0x40, 0x00);
-	ss_high();
-
-	// equivalent of 7.3
-	paw3399_spi2();
-
-	// new placement for anti-jitter configuration
-	ss_low();
-	spi_write(0x7f, 0x05);
-	spi_write(0x43, 0x64);
-	spi_write(0x7f, 0x00);
-	ss_high();
-
-	// 6.1.7
-	ss_low();
-	(void)spi_read(0x02);
-	(void)spi_read(0x03);
-	(void)spi_read(0x04);
-	(void)spi_read(0x05);
-	(void)spi_read(0x06);
-	ss_high();
-
-	// ???
-	ss_low();
-	spi_write(0x68, 0x01);
-	ss_high();
-
-	paw3399_set_dpi(dpi);
-	paw3399_set_as(ang_snap);
-	paw3399_set_lod(lod);
-
-	// invert x
-	ss_low();
-	spi_write(0x5B, 0x20);
-	ss_high();
-
-	// ???
-	delay_us(3000); // in ***, there is a 383ms delay
-	ss_low();
-	spi_write(0x7F, 0x0D);
-	spi_write(0x48, 0xDC);
-	spi_write(0x7F, 0x00);
-	ss_high();
+	PowerUpInit();
+	DisableLiftOff();
+	EnableCordedGaming();
+	AdditionalSetup();
+	CustomConfig();
+	Tweaks();
 }
-
